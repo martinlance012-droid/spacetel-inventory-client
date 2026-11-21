@@ -1,0 +1,6 @@
+# Never commit source workbooks or administrator tools
+*.xlsx
+*.xls
+*.csv
+*Admin*.html
+*Inventory_Admin*.html
