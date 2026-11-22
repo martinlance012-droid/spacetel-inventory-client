@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spacetel Inventory Dashboard – Admin V12</title>
+<title>Spacetel Inventory – Client V15</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
@@ -1756,8 +1756,8 @@ function render(){
   qsSync();
 }
 function regionBanner(){
-  /* Region names shown on the dashboard. "Haitham" is excluded (treated as if it were not selected). */
-  const eff=selRegion.filter(x=>norm(x)!=='haitham' && x!=='UNMAPPED');
+  /* Haitham is represented by the selected Area Manager in the share-card subtitle. */
+  const eff=selRegion.filter(x=>!isHaithamRegion(x) && x!=='UNMAPPED');
   if(!eff.length) return '';
   return eff.length===1 ? String(eff[0]).toUpperCase() : 'MULTIPLE REGIONS';
 }
@@ -1800,7 +1800,12 @@ function sortByAM(rows){
   });
 }
 function hasMultiAM(rows){return unique(rows.map(r=>r['Area Manager'])).length>1}
-function amVisible(){return selRegion.length===1 && String(selRegion[0]).trim().toLowerCase()==='haitham';}
+function isHaithamRegion(value){
+  // Current Calling Tree label may be "Haitham" or "Spacetel (Haitham)".
+  const key=String(value??'').trim().toLowerCase().replace(/[()]/g,'').replace(/\s+/g,' ');
+  return key==='haitham' || key==='spacetel haitham';
+}
+function amVisible(){return selRegion.length===1 && isHaithamRegion(selRegion[0]);}
 function amShown(rows){return showAMOn && amVisible() && hasMultiAM(rows)}
 function sortByLoc(rows){return [...rows].sort((a,b)=>{const d=locNum(a.Location)-locNum(b.Location);if(d&&isFinite(d))return d;return String(a.Location).localeCompare(String(b.Location))||String(a.Product).localeCompare(String(b.Product));});}
 function pdShort(l){return String(l).replace(/Spacetel LLC\s*-\s*/i,'')}
@@ -2406,7 +2411,7 @@ function regionList(){
   const cnt=new Map();
   inventory.forEach(r=>{ if(!cnt.has(r.Region)) cnt.set(r.Region,new Set()); cnt.get(r.Region).add(r.Location); });
   const names=[...cnt.keys()].filter(x=>x!=='UNMAPPED');
-  names.sort((a,b)=>{const ha=a.trim().toLowerCase()==='haitham', hb=b.trim().toLowerCase()==='haitham'; if(ha!==hb) return ha?-1:1; return cnt.get(b).size-cnt.get(a).size||a.localeCompare(b);});
+  names.sort((a,b)=>{const ha=isHaithamRegion(a), hb=isHaithamRegion(b); if(ha!==hb) return ha?-1:1; return cnt.get(b).size-cnt.get(a).size||a.localeCompare(b);});
   if(cnt.has('UNMAPPED')) names.push('UNMAPPED');
   return names;
 }
