@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spacetel Inventory Dashboard – Client V16</title>
+<title>Spacetel Inventory Dashboard – Client V17</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
@@ -1670,8 +1670,15 @@ function updateSourceUploadDisplay(meta){
   const times=meta||uploadTimes;
   const el=$('updatedText');
   if(!el) return;
-  const reportName=times.inventoryType==='AGED'?'Aged Serialized Report':(times.inventoryType==='LISTING'?'Inventory Listing Report':'Inventory Report');
-  el.textContent=reportName+' uploaded: '+formatUploadTime(times.inventory)+'  •  Calling Tree uploaded: '+formatUploadTime(times.callingTree);
+  const candidates=[times.inventory,times.callingTree].filter(Boolean)
+    .map(value=>({value,date:new Date(value)}))
+    .filter(item=>!Number.isNaN(item.date.getTime()))
+    .sort((a,b)=>b.date-a.date);
+  const latest=candidates.length?candidates[0].date:null;
+  const stamp=latest
+    ? latest.toLocaleString(undefined,{year:'numeric',month:'short',day:'2-digit',hour:'numeric',minute:'2-digit'})
+    : 'Not recorded';
+  el.textContent='Source report update: '+stamp;
 }
 function recordSourceUpload(kind, timestamp){
   uploadTimes[kind]=timestamp||new Date().toISOString();
