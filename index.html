@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spacetel Inventory – Client V15</title>
+<title>Spacetel Inventory Dashboard – Client V16</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
@@ -1480,6 +1480,14 @@ body.role-client[data-theme="midnight"] .client-region-prompt span{color:#a9c1c8
   body.role-client .client-region-select{height:42px}
 }
 
+
+/* V16: multi-product serial details remain accessible while combined Quick Share is collapsed */
+.multi-imei-actions{display:flex;justify-content:flex-end;align-items:center;margin:8px 0 10px}
+#imeiBtnMulti{min-height:36px;padding:8px 14px;border-radius:9px;background:var(--accent);color:#fff;font-weight:800}
+body[data-theme="midnight"] #imeiBtnMulti{background:#f2b134;color:#1a1204}
+#updatedText{display:inline-block;white-space:normal;line-height:1.4}
+@media(max-width:620px){.multi-imei-actions{justify-content:flex-start}}
+
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&family=Caladea:wght@700&display=swap" rel="stylesheet">
@@ -1613,6 +1621,9 @@ body.role-client[data-theme="midnight"] .client-region-prompt span{color:#a9c1c8
   <div class="card product-dashboards-panel">
     <b>Individual Product Dashboards</b>
     <div class="note">Compact cards, one per selected product, with a grand total. Scroll inside a card for more locations.</div>
+    <div id="multiImeiActions" class="multi-imei-actions" style="display:none">
+      <button type="button" id="imeiBtnMulti" class="light">Show IMEI / ICCID</button>
+    </div>
     <div id="productDashboards" class="product-dashboards"></div>
   </div>
 </div>
@@ -1639,7 +1650,36 @@ let selectedTheme = 't1';
 let selectedProducts = [];
 let selAM = [], selRegion = [], selLoc = [];
 let showAMOn = true;
-let usingPublished=false, currentVersion=null, lastFiles={inv:'',tree:''};   /* toggle on the Area Manager filter: show Area Managers in the dashboard */
+let usingPublished=false, currentVersion=null, lastFiles={inv:'',tree:''};
+
+/* Track the actual successful upload time for each source file, independently of workbook metadata. */
+const UPLOAD_TIME_STORAGE_KEY='spacetel-upload-times-v1';
+function readUploadTimes(){
+  try{
+    const saved=JSON.parse(localStorage.getItem(UPLOAD_TIME_STORAGE_KEY)||'{}');
+    return {inventory:saved.inventory||'',callingTree:saved.callingTree||'',inventoryType:saved.inventoryType||''};
+  }catch(e){return {inventory:'',callingTree:''};}
+}
+let uploadTimes=readUploadTimes();
+function formatUploadTime(value){
+  if(!value) return 'Not recorded';
+  const d=new Date(value);
+  return Number.isNaN(d.getTime())?'Not recorded':d.toLocaleString(undefined,{year:'numeric',month:'short',day:'2-digit',hour:'numeric',minute:'2-digit'});
+}
+function updateSourceUploadDisplay(meta){
+  const times=meta||uploadTimes;
+  const el=$('updatedText');
+  if(!el) return;
+  const reportName=times.inventoryType==='AGED'?'Aged Serialized Report':(times.inventoryType==='LISTING'?'Inventory Listing Report':'Inventory Report');
+  el.textContent=reportName+' uploaded: '+formatUploadTime(times.inventory)+'  •  Calling Tree uploaded: '+formatUploadTime(times.callingTree);
+}
+function recordSourceUpload(kind, timestamp){
+  uploadTimes[kind]=timestamp||new Date().toISOString();
+  if(kind==='inventory') uploadTimes.inventoryType=lastInvStats.type||uploadTimes.inventoryType||'';
+  try{localStorage.setItem(UPLOAD_TIME_STORAGE_KEY,JSON.stringify(uploadTimes));}catch(e){}
+  updateSourceUploadDisplay();
+}
+   /* toggle on the Area Manager filter: show Area Managers in the dashboard */
 
 const $ = id => document.getElementById(id);
 const unique = a => [...new Set(a)].filter(x => x!=='' && x!=null).sort((a,b)=>String(a).localeCompare(String(b)));
@@ -1734,10 +1774,14 @@ let qsLast=null;
 function qsSync(){
   const sb=document.querySelector('.sharebox'); if(!sb) return;
   const mode=selectedProducts.length>=2?'multi':'single';
-  if(mode===qsLast) return; qsLast=mode;
+  qsLast=mode;
   sb.classList.toggle('collapsed',mode==='multi');
   const t=sb.querySelector('.collapser');
   if(t) t.textContent='Quick Share (combined card) '+(mode==='multi'?'\u25B8':'\u25BE');
+  const multiActions=$('multiImeiActions');
+  if(multiActions) multiActions.style.display=mode==='multi'?'flex':'none';
+  const multiBtn=$('imeiBtnMulti');
+  if(multiBtn) multiBtn.textContent=imeiOpen?'Hide IMEI / ICCID':'Show IMEI / ICCID';
 }
 function render(){
   current=filtered();
@@ -2331,7 +2375,7 @@ function parseCallingTree(wb) {
 }
 
 $('inventoryFile').addEventListener('change',e=>{
- const f=e.target.files[0]; if(!f)return; lastFiles.inv=f.name;
+ const f=e.target.files[0]; if(!f)return; lastFiles.inv=f.name; const inventoryUploadAt=new Date().toISOString();
  const st=$('inventoryStatus');
  st.dataset.keep='1'; st.classList.remove('warn'); st.textContent='\u23F3 Reading report... large files can take up to a minute, please wait';
  const rd=new FileReader();
@@ -2339,6 +2383,7 @@ $('inventoryFile').addEventListener('change',e=>{
   setTimeout(()=>{
    try{
     parseInventory(XLSX.read(ev.target.result,{type:'array',cellFormula:false,cellHTML:false,cellText:false,cellStyles:false,cellNF:false}));
+     recordSourceUpload('inventory',inventoryUploadAt);
     st.dataset.keep='1'; st.classList.remove('warn');
     st.textContent='\u2713 Upload successful \u2022 '+(lastInvStats.type==='AGED'?'Aged Serialized report':'Inventory Listing report');
    }catch(err){
@@ -2351,8 +2396,8 @@ $('inventoryFile').addEventListener('change',e=>{
  rd.readAsArrayBuffer(f);
 });
 $('callingFile').addEventListener('change',e=>{
- const f=e.target.files[0]; if(!f)return; lastFiles.tree=f.name; usingPublished=false;
- const rd=new FileReader(); rd.onload=ev=>{try{parseCallingTree(XLSX.read(ev.target.result,{type:'array'}));}catch(err){alert(err.message);}}; rd.readAsArrayBuffer(f);
+ const f=e.target.files[0]; if(!f)return; lastFiles.tree=f.name; usingPublished=false; const callingTreeUploadAt=new Date().toISOString();
+ const rd=new FileReader(); rd.onload=ev=>{try{parseCallingTree(XLSX.read(ev.target.result,{type:'array'})); recordSourceUpload('callingTree',callingTreeUploadAt);}catch(err){alert(err.message);}}; rd.readAsArrayBuffer(f);
 });
 $('prodButton').addEventListener('click',e=>{e.stopPropagation(); const m=$('prodMenu'), was=m.classList.contains('open'); closeMenus(); renderProductMenu(); if(!was) m.classList.add('open');});
 $('prodSearch').addEventListener('focus',()=>{closeMenus($('prodMenu'));renderProductMenu(true);});
@@ -2476,8 +2521,10 @@ function imeiUnits(){
   return {out,noSerial};
 }
 function renderImei(){
-  const btn=$('imeiBtn'), panel=$('imeiPanel'), has=selectedProducts.length>0;
-  btn.textContent=imeiOpen?'Hide IMEI / ICCID':'Show IMEI / ICCID';
+  const btn=$('imeiBtn'), multiBtn=$('imeiBtnMulti'), panel=$('imeiPanel'), has=selectedProducts.length>0;
+  const buttonText=imeiOpen?'Hide IMEI / ICCID':'Show IMEI / ICCID';
+  btn.textContent=buttonText;
+  if(multiBtn) multiBtn.textContent=buttonText;
   panel.style.display=imeiOpen?'':'none';
   if(!imeiOpen) return;
   $('imeiSearch').style.display=has?'':'none';
@@ -2501,7 +2548,12 @@ function renderImei(){
   const more=$('imeiMore'), left=list.length-imeiLimit; more.style.display=left>0?'':'none';
   if(left>0) more.textContent='Show '+Math.min(200,left).toLocaleString()+' more ('+left.toLocaleString()+' remaining)';
 }
-$('imeiBtn').addEventListener('click',()=>{imeiOpen=!imeiOpen;imeiLimit=200;renderImei();if(imeiOpen)$('imeiPanel').scrollIntoView({behavior:'smooth',block:'start'});});
+function toggleImeiPanel(){
+  imeiOpen=!imeiOpen;imeiLimit=200;renderImei();
+  if(imeiOpen)$('imeiPanel').scrollIntoView({behavior:'smooth',block:'start'});
+}
+$('imeiBtn').addEventListener('click',toggleImeiPanel);
+$('imeiBtnMulti').addEventListener('click',toggleImeiPanel);
 $('imeiMore').addEventListener('click',()=>{imeiLimit+=200;renderImei();});
 $('imeiSearch').addEventListener('input',()=>{imeiLimit=200;renderImei();});
 $('export').addEventListener('click',()=>{
@@ -2692,9 +2744,10 @@ async function downloadClientDataFile(){
   btn.textContent='Preparing...';
   try{
     const payload={
-      format:'spacetel-inventory-client-v2',
+      format:'spacetel-inventory-client-v3',
       publishedAt:new Date().toISOString(),
       sourceUpdated:lastInvStats.srcDate || '',
+      uploadTimestamps:{inventory:uploadTimes.inventory||'',callingTree:uploadTimes.callingTree||'',inventoryType:uploadTimes.inventoryType||lastInvStats.type||''},
       rowCount:inventory.length,
       packedRows:await packRows(inventory)
     };
@@ -2722,8 +2775,7 @@ async function downloadClientDataFile(){
 $('downloadClientData').addEventListener('click',downloadClientDataFile);
 
 function setUpdatedBar(meta){
-  $('updatedText').textContent = meta && meta.srcDate ? 'Source report last updated on '+meta.srcDate
-    : (meta ? 'Data published on '+new Date(meta.version).toLocaleString() : 'No data has been published yet');
+  updateSourceUploadDisplay(meta && meta.uploadTimestamps ? meta.uploadTimestamps : {inventory:'',callingTree:''});
 }
 
 /* Client-only published-data loader. No report uploads are exposed in this view. */
@@ -2735,12 +2787,12 @@ async function loadPublishedClientData(){
     const res=await fetch('./spacetel-public-data.json?nocache='+Date.now(),{cache:'no-store'});
     if(!res.ok) throw new Error('Published inventory file was not found.');
     const payload=await res.json();
-    if(payload.format!=='spacetel-inventory-client-v2'||!payload.packedRows){
-      throw new Error('The published data file is not the latest format. Please download Client Data again from Admin V13.');
+    if(payload.format!=='spacetel-inventory-client-v3'||!payload.packedRows){
+      throw new Error('The published data file is not the latest format. Please download Client Data again from Admin V15.');
     }
     const rows=await unpackRows(payload.packedRows);
     applyRows(rows);
-    setUpdatedBar({srcDate:payload.sourceUpdated||'',version:payload.publishedAt||''});
+    setUpdatedBar({uploadTimestamps:payload.uploadTimestamps||{inventory:'',callingTree:''}});
     $('viewerMsg').textContent='';
     $('viewerMsg').className='';
     renderRegionBar();
